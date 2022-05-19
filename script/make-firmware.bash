@@ -186,11 +186,8 @@ build_ot()
             # Build
             build_dir=${OT_CMAKE_BUILD_DIR:-"${repo_dir}"/build-"${thread_version}"/"${platform}"}
 
-            if [ -z "${build_script_flags[@]}" ]; then
-                OT_CMAKE_BUILD_DIR="${build_dir}" ./script/build "${platform}" "${build_type:-}" "$@"
-            else
-                OT_CMAKE_BUILD_DIR="${build_dir}" ./script/build "${build_script_flags[@]}" "${platform}" "${build_type:-}" "$@"
-            fi
+            cmd_string="OT_CMAKE_BUILD_DIR=\"${build_dir}\" ./script/build ${build_script_flags[@]} ${platform} ${build_type:-} $@"
+            eval "${cmd_string}"
 
             # Package and distribute
             local dist_apps=(
