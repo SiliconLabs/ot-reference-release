@@ -29,6 +29,15 @@
 
 set -euxo pipefail
 
+if [[ -n ${BASH_SOURCE[0]} ]]; then
+    script_path="${BASH_SOURCE[0]}"
+else
+    script_path="$0"
+fi
+
+script_dir="$(dirname "$(realpath "$script_path")")"
+repo_dir="$(dirname "$script_dir")"
+
 disable_install_recommends()
 {
     OTBR_APT_CONF_FILE=/etc/apt/apt.conf
@@ -98,3 +107,14 @@ fi
 sudo apt-get install --no-install-recommends --allow-unauthenticated -y qemu qemu-user-static binfmt-support parted dcfldd
 
 pip3 install git-archive-all
+
+case "${REFERENCE_PLATFORM}" in
+    nrf*)
+        platform_repo=ot-nrf528xx
+        "${repo_dir}"/"${platform_repo}"/script/bootstrap
+        ;;
+    efr32mg12)
+        platform_repo=ot-efr32
+        "${repo_dir}"/"${platform_repo}"/script/bootstrap
+        ;;
+esac

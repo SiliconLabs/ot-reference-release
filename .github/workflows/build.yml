@@ -59,7 +59,7 @@ jobs:
         lfs: true
     - name: Bootstrap
       run: |
-        script/bootstrap.bash
+        REFERENCE_PLATFORM=${{ matrix.platform }} script/bootstrap.bash
     - name: Build
       run: |
         REFERENCE_RELEASE_TYPE=${{ matrix.release_type }} \
