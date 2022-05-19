@@ -29,9 +29,6 @@
 
 set -euxo pipefail
 
-TOOLS_HOME="$HOME"/.cache/tools
-[[ -d $TOOLS_HOME ]] || mkdir -p "$TOOLS_HOME"
-
 disable_install_recommends()
 {
     OTBR_APT_CONF_FILE=/etc/apt/apt.conf
@@ -101,23 +98,3 @@ fi
 sudo apt-get install --no-install-recommends --allow-unauthenticated -y qemu qemu-user-static binfmt-support parted dcfldd
 
 pip3 install git-archive-all
-
-IMAGE_NAME=$(basename "${IMAGE_URL}" .zip)
-IMAGE_FILE="$IMAGE_NAME".img
-[ -f "$TOOLS_HOME"/images/"$IMAGE_FILE" ] || {
-    # unit MB
-    EXPAND_SIZE=4096
-
-    [ -d "$TOOLS_HOME"/images ] || mkdir -p "$TOOLS_HOME"/images
-
-    [[ -f "$IMAGE_NAME".zip ]] || curl -LO "$IMAGE_URL"
-
-    unzip "$IMAGE_NAME".zip -d /tmp
-
-    (cd /tmp \
-        && dd if=/dev/zero bs=1048576 count="$EXPAND_SIZE" >>"$IMAGE_FILE" \
-        && mv "$IMAGE_FILE" "$TOOLS_HOME"/images/"$IMAGE_FILE")
-
-    (cd docker-rpi-emu/scripts \
-        && sudo ./expand.sh "$TOOLS_HOME"/images/"$IMAGE_FILE" "$EXPAND_SIZE")
-}

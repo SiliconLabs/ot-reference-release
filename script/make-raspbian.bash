@@ -73,9 +73,31 @@ trap cleanup EXIT
 
 main()
 {
-    BUILD_TARGET=$BUILD_TARGET IMAGE_URL=$IMAGE_URL ./script/bootstrap.bash
+    BUILD_TARGET=$BUILD_TARGET ./script/bootstrap.bash
+
+    TOOLS_HOME="$HOME"/.cache/tools
+    [[ -d $TOOLS_HOME ]] || mkdir -p "$TOOLS_HOME"
 
     IMAGE_NAME=$(basename "${IMAGE_URL}" .zip)
+    IMAGE_FILE="$IMAGE_NAME".img
+    [ -f "$TOOLS_HOME"/images/"$IMAGE_FILE" ] || {
+        # unit MB
+        EXPAND_SIZE=4096
+
+        [ -d "$TOOLS_HOME"/images ] || mkdir -p "$TOOLS_HOME"/images
+
+        [[ -f "$IMAGE_NAME".zip ]] || curl -LO "$IMAGE_URL"
+
+        unzip "$IMAGE_NAME".zip -d /tmp
+
+        (cd /tmp \
+            && dd if=/dev/zero bs=1048576 count="$EXPAND_SIZE" >>"$IMAGE_FILE" \
+            && mv "$IMAGE_FILE" "$TOOLS_HOME"/images/"$IMAGE_FILE")
+
+        (cd docker-rpi-emu/scripts \
+            && sudo ./expand.sh "$TOOLS_HOME"/images/"$IMAGE_FILE" "$EXPAND_SIZE")
+    }
+
     IMAGE_FILE="$TOOLS_HOME"/images/"$IMAGE_NAME".img
 
     [ -d "$STAGE_DIR" ] || mkdir -p "$STAGE_DIR"
