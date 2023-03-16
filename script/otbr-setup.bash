@@ -122,6 +122,7 @@ deb-src http://mirrors.tuna.tsinghua.edu.cn/raspbian/raspbian/ buster main non-f
 configure_apt_source
 
 echo "127.0.0.1 $(hostname)" >>/etc/hosts
+echo "nameserver 127.0.0.53" > /etc/resolv.conf
 chown -R pi:pi /home/pi/repo
 cd /home/pi/repo/ot-br-posix
 apt-get update
