@@ -62,7 +62,14 @@ install_common_dependencies()
         libreadline-dev \
         libncurses-dev \
         libjsoncpp-dev \
-        coreutils
+        python3 \
+        python3-pip \
+        coreutils \
+        unzip \
+        fdisk \
+        git \
+        curl
+
 }
 
 install_openthread_binaries()
