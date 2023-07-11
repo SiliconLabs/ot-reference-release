@@ -62,7 +62,8 @@ install_common_dependencies()
         libreadline-dev \
         libncurses-dev \
         libjsoncpp-dev \
-        coreutils
+        coreutils \
+        xz-utils
 }
 
 install_openthread_binaries()
@@ -120,22 +121,30 @@ pip3 install git-archive-all
 
 # Prepare Raspbian image
 
-IMAGE_NAME=$(basename "${IMAGE_URL}" .zip)
-IMAGE_FILE="$IMAGE_NAME".img
+IMAGE_FILE=$(basename "${IMAGE_URL}" .xz)
+
 [ -f "$TOOLS_HOME"/images/"$IMAGE_FILE" ] || {
     # unit MB
     EXPAND_SIZE=4096
 
+    # Ensure "$TOOLS_HOME"/images exists
     [ -d "$TOOLS_HOME"/images ] || mkdir -p "$TOOLS_HOME"/images
 
-    [[ -f "$IMAGE_NAME".zip ]] || curl -LO "$IMAGE_URL"
+    # Download image if it doesn't exist already
+    [[ -f "$IMAGE_FILE".xz ]] || curl -LO "$IMAGE_URL"
 
-    unzip "$IMAGE_NAME".zip -d /tmp
+    # Extract compressed image
+    [[ -f "$IMAGE_FILE" ]] || xz --decompress "$IMAGE_FILE".xz
 
+    # Move to /tmp
+    mv "$IMAGE_FILE" /tmp
+
+    # Add $EXPAND_SIZE MB of zeros to the end of $IMAGE_FILE
     (cd /tmp \
-        && dd if=/dev/zero bs=1048576 count="$EXPAND_SIZE" >>"$IMAGE_FILE" \
-        && mv "$IMAGE_FILE" "$TOOLS_HOME"/images/"$IMAGE_FILE")
+        && dd if=/dev/zero bs=1M count="$EXPAND_SIZE" >>"$IMAGE_FILE" \
+        && mv "$IMAGE_FILE" "$TOOLS_HOME"/images/"$IMAGE_FILE" )
 
+    # Expand OS partition
     (cd docker-rpi-emu/scripts \
         && sudo ./expand.sh "$TOOLS_HOME"/images/"$IMAGE_FILE" "$EXPAND_SIZE")
 }

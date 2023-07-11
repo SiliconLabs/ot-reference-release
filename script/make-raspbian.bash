@@ -38,7 +38,7 @@ fi
 script_dir="$(dirname "$(realpath "$script_path")")"
 repo_dir="$(dirname "$script_dir")"
 
-IMAGE_URL=https://downloads.raspberrypi.org/raspios_lite_armhf/images/raspios_lite_armhf-2021-05-28/2021-05-07-raspios-buster-armhf-lite.zip
+IMAGE_URL=https://downloads.raspberrypi.org/raspios_lite_armhf/images/raspios_lite_armhf-2023-05-03/2023-05-03-raspios-bullseye-armhf-lite.img.xz
 echo "REFERENCE_RELEASE_TYPE=${REFERENCE_RELEASE_TYPE?}"
 echo "IN_CHINA=${IN_CHINA:=0}"
 echo "OUTPUT_ROOT=${OUTPUT_ROOT?}"
@@ -77,8 +77,8 @@ main()
 {
     BUILD_TARGET=$BUILD_TARGET IMAGE_URL=$IMAGE_URL ./script/bootstrap.bash
 
-    IMAGE_NAME=$(basename "${IMAGE_URL}" .zip)
-    IMAGE_FILE="$TOOLS_HOME"/images/"$IMAGE_NAME".img
+    IMAGE_NAME=$(basename "${IMAGE_URL}" .xz)
+    IMAGE_FILE="$TOOLS_HOME"/images/"$IMAGE_NAME"
 
     [ -d "$STAGE_DIR" ] || mkdir -p "$STAGE_DIR"
     cp -v "$IMAGE_FILE" "$STAGE_DIR"/raspbian.img
