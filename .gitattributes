@@ -1,0 +1,6 @@
+ot-efr32 export-ignore
+ot-nrf528xx export-ignore
+ot-comissioner export-ignore
+.github export-ignore
+doc export-ignore
+*.md export-ignore
