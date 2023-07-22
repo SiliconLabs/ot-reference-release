@@ -115,27 +115,3 @@ if [ "${OTBR_MDNS-}" == 'mDNSResponder' ]; then
 fi
 
 install_qemu
-
-pip3 install git-archive-all
-
-# Prepare Raspbian image
-
-IMAGE_NAME=$(basename "${IMAGE_URL}" .zip)
-IMAGE_FILE="$IMAGE_NAME".img
-[ -f "$TOOLS_HOME"/images/"$IMAGE_FILE" ] || {
-    # unit MB
-    EXPAND_SIZE=6144
-
-    [ -d "$TOOLS_HOME"/images ] || mkdir -p "$TOOLS_HOME"/images
-
-    [[ -f "$IMAGE_NAME".zip ]] || curl -LO "$IMAGE_URL"
-
-    unzip "$IMAGE_NAME".zip -d /tmp
-
-    (cd /tmp \
-        && dd if=/dev/zero bs=1048576 count="$EXPAND_SIZE" >>"$IMAGE_FILE" \
-        && mv "$IMAGE_FILE" "$TOOLS_HOME"/images/"$IMAGE_FILE")
-
-    (cd docker-rpi-emu/scripts \
-        && sudo ./expand.sh "$TOOLS_HOME"/images/"$IMAGE_FILE" "$EXPAND_SIZE")
-}

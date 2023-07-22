@@ -36,9 +36,8 @@ else
 fi
 
 script_dir="$(dirname "$(realpath "$script_path")")"
-repo_dir="$(dirname "$script_dir")"
+OT_REFERENCE_RELEASE="$(dirname "$script_dir")"
 
-IMAGE_URL=https://downloads.raspberrypi.org/raspios_lite_armhf/images/raspios_lite_armhf-2021-05-28/2021-05-07-raspios-buster-armhf-lite.zip
 echo "REFERENCE_RELEASE_TYPE=${REFERENCE_RELEASE_TYPE?}"
 echo "IN_CHINA=${IN_CHINA:=0}"
 echo "OUTPUT_ROOT=${OUTPUT_ROOT?}"
@@ -53,21 +52,24 @@ fi
 
 BUILD_TARGET=raspbian-gcc
 STAGE_DIR=/tmp/raspbian
-IMAGE_DIR=${repo_dir}/mnt-rpi
-TOOLS_HOME=$HOME/.cache/tools
+QEMU_ROOT="${HOME}/media/rpi"
+IMAGES_DIR="${IMAGES_DIR-"$HOME/.cache/tools/images"}"
+
+RASPIOS_URL=https://downloads.raspberrypi.org/raspios_lite_armhf/images/raspios_lite_armhf-2023-05-03/2023-05-03-raspios-bullseye-armhf-lite.img.xz
+IMAGE_ARCHIVE=$(basename "${RASPIOS_URL}")
+IMAGE_FILE=$(basename "${IMAGE_ARCHIVE}" .xz)
 
 cleanup()
 {
     set +e
-
-    # Unmount and detach any loop devices
-    loop_names=$(losetup -j $STAGE_DIR/raspbian.img --output NAME -n)
-    for loop in ${loop_names}; do
-        sudo umount -lf "${loop}p1"
-        sudo umount -lf "${loop}p2"
-        sudo losetup -d "${loop}"
+    for pid in $(sudo lsof -t "$QEMU_ROOT"); do
+        sudo kill "$pid"
     done
 
+    # Teardown QEMU machine
+    sudo "${OT_REFERENCE_RELEASE}"/docker-rpi-emu/scripts/qemu-cleanup.sh "$QEMU_ROOT"
+
+    sudo umount -f -R "$QEMU_ROOT"
     set -e
 }
 
@@ -75,59 +77,86 @@ trap cleanup EXIT
 
 main()
 {
-    BUILD_TARGET=$BUILD_TARGET IMAGE_URL=$IMAGE_URL ./script/bootstrap.bash
+    OPENTHREAD_COMMIT_HASH=$(cd "${OT_REFERENCE_RELEASE}"/openthread && git rev-parse --short HEAD)
+    OT_BR_POSIX_COMMIT_HASH=$(cd "${OT_REFERENCE_RELEASE}"/ot-br-posix && git rev-parse --short HEAD)
+    # This script will be executed entirely within the siliconlabsinc/docker-rpi-emu container
 
-    IMAGE_NAME=$(basename "${IMAGE_URL}" .zip)
-    IMAGE_FILE="$TOOLS_HOME"/images/"$IMAGE_NAME".img
+    # Ensure OUTPUT_ROOT exists
+    mkdir -p "$OUTPUT_ROOT"
 
+    # Ensure IMAGES_DIR exists
+    [ -d "$IMAGES_DIR" ] || mkdir -p "$IMAGES_DIR"
+
+    # Download raspios image
+    wget -q -O "$IMAGES_DIR/$IMAGE_ARCHIVE" -c "$RASPIOS_URL"
+
+    # Extract the downloaded archive
+    [[ -f "$IMAGES_DIR/$IMAGE_FILE" ]] || xz -k -d "$IMAGES_DIR/$IMAGE_ARCHIVE"
+    ls -alh $IMAGES_DIR/$IMAGE_FILE
+
+    # Ensure STAGE_DIR exists. Create a copy of IMAGE_FILE in STAGE_DIR
     [ -d "$STAGE_DIR" ] || mkdir -p "$STAGE_DIR"
-    cp -v "$IMAGE_FILE" "$STAGE_DIR"/raspbian.img
 
+    export STAGING_IMAGE_FILE="$STAGE_DIR/otbr.${REFERENCE_RELEASE_TYPE?}-$(date +%Y%m%d).ot_${OPENTHREAD_COMMIT_HASH}.ot-br_${OT_BR_POSIX_COMMIT_HASH}.img"
+    cp "$IMAGES_DIR/$IMAGE_FILE" "$STAGING_IMAGE_FILE"
+
+    # Expand IMAGE_FILE by EXPAND_SIZE
+    # unit MB
+    EXPAND_SIZE=6144
+    dd if=/dev/zero bs=1M count=$EXPAND_SIZE >> "$STAGING_IMAGE_FILE"
+    ls -alh "$STAGING_IMAGE_FILE"
+    sudo "${OT_REFERENCE_RELEASE}"/docker-rpi-emu/scripts/expand.sh "$STAGING_IMAGE_FILE" "$EXPAND_SIZE"
+
+    # Create mount dir
+    mkdir -p $QEMU_ROOT
+
+    # Mount .img
+    sudo "${OT_REFERENCE_RELEASE}"/docker-rpi-emu/scripts/mount.sh "$STAGING_IMAGE_FILE" $QEMU_ROOT
+
+    # Mount /etc/resolv.conf
+    sudo mount -o ro,bind /etc/resolv.conf "$QEMU_ROOT"/etc/resolv.conf
+
+    # Start RPi QEMU machine
+    sudo "${OT_REFERENCE_RELEASE}"/docker-rpi-emu/scripts/qemu-setup.sh "$QEMU_ROOT"
+
+    # Copy ot-reference-release repo into QEMU_ROOT
+    pip3 install git_archive_all
     python3 -m git_archive_all "$STAGE_DIR"/repo.tar.gz
+    sudo mkdir -p "$QEMU_ROOT"/home/pi/repo
+    sudo tar xzf "$STAGE_DIR"/repo.tar.gz --absolute-names --strip-components 1 -C "$QEMU_ROOT"/home/pi/repo
 
-    mkdir -p "$IMAGE_DIR"
-    chown -R "$USER": "$IMAGE_DIR"
-    ls -alh "$IMAGE_DIR"
-    script/mount.bash "$STAGE_DIR"/raspbian.img "$IMAGE_DIR"
+    # Run OTBR install
+    sudo chroot "$QEMU_ROOT" chmod +x /home/pi/repo/script/otbr-setup.bash /home/pi/repo/script/otbr-setup.bash
+    sudo chroot "$QEMU_ROOT" /bin/bash -c "export DOCKER=${DOCKER-0} && /home/pi/repo/script/otbr-setup.bash \"${REFERENCE_RELEASE_TYPE?}\" \"$IN_CHINA\" \"${REFERENCE_PLATFORM?}\" \"${OPENTHREAD_COMMIT_HASH}\" \"${OT_BR_POSIX_COMMIT_HASH}\" \"${OTBR_RCP_BUS}\" \"${OTBR_RADIO_URL}\""
+    sudo chroot "$QEMU_ROOT" /bin/bash /home/pi/repo/script/otbr-cleanup.bash
+    echo "enable_uart=1" | sudo tee -a "$QEMU_ROOT"/boot/config.txt
+    echo "dtoverlay=disable-bt" | sudo tee -a "$QEMU_ROOT"/boot/config.txt
+    if [[ ${OTBR_RCP_BUS} == "SPI" ]]; then
+        echo "dtparam=spi=on" | sudo tee -a "$QEMU_ROOT"/boot/config.txt
+    fi
+    sudo touch "$QEMU_ROOT"/boot/ssh && sync && sleep 1
 
-    (
-        OPENTHREAD_COMMIT_HASH=$(cd "${repo_dir}"/openthread && git rev-parse --short HEAD)
-        OT_BR_POSIX_COMMIT_HASH=$(cd "${repo_dir}"/ot-br-posix && git rev-parse --short HEAD)
-        cd docker-rpi-emu/scripts
-        sudo mount --bind /dev/pts "$IMAGE_DIR"/dev/pts
-        sudo mkdir -p "$IMAGE_DIR"/home/pi/repo
-        sudo tar xzf "$STAGE_DIR"/repo.tar.gz --absolute-names --strip-components 1 -C "$IMAGE_DIR"/home/pi/repo
-        sudo ./qemu-setup.sh "$IMAGE_DIR"
-        sudo chroot "$IMAGE_DIR" /bin/bash /home/pi/repo/script/otbr-setup.bash "${REFERENCE_RELEASE_TYPE?}" "$IN_CHINA" "${REFERENCE_PLATFORM?}" "${OPENTHREAD_COMMIT_HASH}" "${OT_BR_POSIX_COMMIT_HASH}" "${OTBR_RCP_BUS}" "${OTBR_RADIO_URL}"
-        sudo chroot "$IMAGE_DIR" /bin/bash /home/pi/repo/script/otbr-cleanup.bash
-        echo "enable_uart=1" | sudo tee -a "$IMAGE_DIR"/boot/config.txt
-        echo "dtoverlay=disable-bt" | sudo tee -a "$IMAGE_DIR"/boot/config.txt
-        if [[ ${OTBR_RCP_BUS} == "SPI" ]]; then
-            echo "dtparam=spi=on" | sudo tee -a "$IMAGE_DIR"/boot/config.txt
-        fi
-        sudo touch "$IMAGE_DIR"/boot/ssh && sync && sleep 1
-        sudo ./qemu-cleanup.sh "$IMAGE_DIR"
-        LOOP_NAME=$(losetup -j $STAGE_DIR/raspbian.img --output NAME -n)
-        sudo sh -c "dcfldd of=$STAGE_DIR/otbr.img if=$LOOP_NAME bs=1m && sync"
-        sudo cp $STAGE_DIR/otbr.img $STAGE_DIR/otbr_original.img
-        if [[ ! -f /usr/bin/pishrink.sh ]]; then
-            sudo wget https://raw.githubusercontent.com/Drewsif/PiShrink/master/pishrink.sh -O /usr/bin/pishrink.sh && sudo chmod a+x /usr/bin/pishrink.sh
-        fi
-        set +e
-        sudo /usr/bin/pishrink.sh $STAGE_DIR/otbr.img
-        ret_val=$?
-        # Ignore error when pishrink can't shrink the image any further
-        if [[ $ret_val -ne 11 ]] && [[ $ret_val -ne 0 ]]; then
-            exit $ret_val
-        fi
-        set -e
-        if [[ -n ${SD_CARD:=} ]]; then
-            sudo sh -c "dcfldd if=$STAGE_DIR/otbr.img of=$SD_CARD bs=1m && sync"
-        fi
-        IMG_ZIP_FILE="otbr.${REFERENCE_RELEASE_TYPE?}-$(date +%Y%m%d).ot_${OPENTHREAD_COMMIT_HASH}.ot-br_${OT_BR_POSIX_COMMIT_HASH}.img.zip"
-        (cd $STAGE_DIR && zip "$IMG_ZIP_FILE" otbr.img && mv "$IMG_ZIP_FILE" "$OUTPUT_ROOT")
+    # Shrink .img
+    if [[ ! -f /usr/bin/pishrink.sh ]]; then
+        sudo wget https://raw.githubusercontent.com/Drewsif/PiShrink/master/pishrink.sh -O /usr/bin/pishrink.sh && sudo chmod a+x /usr/bin/pishrink.sh
+    fi
+    set +e
+    sudo /usr/bin/pishrink.sh "$STAGING_IMAGE_FILE"
+    ret_val=$?
+    # Ignore error when pishrink can't shrink the image any further
+    if [[ $ret_val -ne 11 ]] && [[ $ret_val -ne 0 ]]; then
+        exit $ret_val
+    fi
+    set -e
 
-    )
+    # Write .img to SD Card
+    if [[ -n ${SD_CARD:=} ]]; then
+        sudo sh -c "dcfldd if="$STAGING_IMAGE_FILE" of=$SD_CARD bs=1m && sync"
+    fi
+
+    # Compress .img and move archive to OUTPUT_ROOT
+    IMG_ZIP_FILE="$(basename "$STAGING_IMAGE_FILE").zip"
+    (cd $STAGE_DIR && zip "$IMG_ZIP_FILE" "$STAGING_IMAGE_FILE" && mv "$IMG_ZIP_FILE" "$OUTPUT_ROOT")
 }
 
 main "$@"
