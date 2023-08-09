@@ -27,21 +27,27 @@
 #  POSSIBILITY OF SUCH DAMAGE.
 #
 
-set -euxo pipefail
-
+set -x
 cd ot-commissioner
 
+./script/bootstrap.sh
+set -euxo pipefail
 wget https://bootstrap.pypa.io/pip/2.7/get-pip.py
 sudo python2 get-pip.py
 
 pip2 install -r tools/commissioner_thci/requirements.txt
-./script/bootstrap.sh || true
 
 mkdir -p build
 cd build
 
-/usr/local/bin/cmake -GNinja -DCMAKE_INSTALL_PREFIX=/usr -DOT_COMM_REFERENCE_DEVICE=ON ..
-ninja -j10
-ninja install
+if command -v /usr/local/bin/cmake; then
+    CMAKE=/usr/local/bin/cmake
+elif command -v cmake; then
+    CMAKE=cmake
+fi
+
+$CMAKE -GNinja -DCMAKE_INSTALL_PREFIX=/usr -DOT_COMM_REFERENCE_DEVICE=ON ..
+ninja -j0
+sudo ninja install
 
 sudo systemctl enable commissionerd
