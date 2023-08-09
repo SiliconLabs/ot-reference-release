@@ -55,15 +55,19 @@ STAGE_DIR=/tmp/raspbian
 QEMU_ROOT="${HOME}/media/rpi"
 IMAGES_DIR="${IMAGES_DIR-"$HOME/.cache/tools/images"}"
 
-RASPIOS_URL=https://downloads.raspberrypi.org/raspios_lite_armhf/images/raspios_lite_armhf-2023-05-03/2023-05-03-raspios-bullseye-armhf-lite.img.xz
+# RASPIOS_URL=https://downloads.raspberrypi.org/raspios_lite_armhf/images/raspios_lite_armhf-2023-05-03/2023-05-03-raspios-bullseye-armhf-lite.img.xz
+# IMAGE_ARCHIVE=$(basename "${RASPIOS_URL}")
+# IMAGE_FILE=$(basename "${IMAGE_ARCHIVE}" .xz)
+
+RASPIOS_URL=https://downloads.raspberrypi.org/raspios_lite_armhf/images/raspios_lite_armhf-2021-05-28/2021-05-07-raspios-buster-armhf-lite.zip
 IMAGE_ARCHIVE=$(basename "${RASPIOS_URL}")
-IMAGE_FILE=$(basename "${IMAGE_ARCHIVE}" .xz)
+IMAGE_FILE=$(basename "${IMAGE_ARCHIVE}" .zip).img
 
 cleanup()
 {
     set +e
     for pid in $(sudo lsof -t "$QEMU_ROOT"); do
-        sudo kill "$pid"
+        sudo kill -9 "$pid"
     done
 
     # Teardown QEMU machine
@@ -91,7 +95,17 @@ main()
     wget -q -O "$IMAGES_DIR/$IMAGE_ARCHIVE" -c "$RASPIOS_URL"
 
     # Extract the downloaded archive
-    [[ -f "$IMAGES_DIR/$IMAGE_FILE" ]] || xz -k -d "$IMAGES_DIR/$IMAGE_ARCHIVE"
+    if [ ! -f "$IMAGES_DIR/$IMAGE_FILE" ]; then
+        mime_type=$(file "$IMAGES_DIR/$IMAGE_ARCHIVE" --mime-type)
+        if [[ "$mime_type" == *"application/zip"* ]]; then
+            unzip "$IMAGES_DIR/$IMAGE_ARCHIVE" -d $IMAGES_DIR
+        elif [[ "$mime_type" == *"application/"* ]]; then
+            xz -k -d "$IMAGES_DIR/$IMAGE_ARCHIVE"
+        else
+            echo "ERROR: Unrecognized archive type\n${mime_type}"
+            exit 3
+        fi
+    fi
     ls -alh $IMAGES_DIR/$IMAGE_FILE
 
     # Ensure STAGE_DIR exists. Create a copy of IMAGE_FILE in STAGE_DIR
