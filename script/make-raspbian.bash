@@ -50,18 +50,9 @@ if [ "$REFERENCE_RELEASE_TYPE" != "1.2" ] && [ "$REFERENCE_RELEASE_TYPE" != "1.3
     exit 1
 fi
 
-BUILD_TARGET=raspbian-gcc
 STAGE_DIR=/tmp/raspbian
 QEMU_ROOT="${HOME}/media/rpi"
 IMAGES_DIR="${IMAGES_DIR-"$HOME/.cache/tools/images"}"
-
-# RASPIOS_URL=https://downloads.raspberrypi.org/raspios_lite_armhf/images/raspios_lite_armhf-2023-05-03/2023-05-03-raspios-bullseye-armhf-lite.img.xz
-# IMAGE_ARCHIVE=$(basename "${RASPIOS_URL}")
-# IMAGE_FILE=$(basename "${IMAGE_ARCHIVE}" .xz)
-
-RASPIOS_URL=https://downloads.raspberrypi.org/raspios_lite_armhf/images/raspios_lite_armhf-2021-05-28/2021-05-07-raspios-buster-armhf-lite.zip
-IMAGE_ARCHIVE=$(basename "${RASPIOS_URL}")
-IMAGE_FILE=$(basename "${IMAGE_ARCHIVE}" .zip).img
 
 cleanup()
 {
@@ -70,10 +61,18 @@ cleanup()
         sudo kill -9 "$pid"
     done
 
-    # Teardown QEMU machine
-    sudo "${OT_REFERENCE_RELEASE}"/docker-rpi-emu/scripts/qemu-cleanup.sh "$QEMU_ROOT"
+    # Unmount and detach any loop devices
+    if [ -f ${STAGING_IMAGE_FILE-""} ]; then
+        loop_names=$(losetup -j ${STAGING_IMAGE_FILE} --output NAME -n)
+        for loop in ${loop_names[@]}; do
+            sudo losetup -d "${loop}"
+        done
+    fi
 
-    sudo umount -f -R "$QEMU_ROOT"
+    # Teardown QEMU machine
+    sudo "${OT_REFERENCE_RELEASE}"/docker-rpi-emu/scripts/qemu-cleanup.sh "$QEMU_ROOT" || true
+
+    sudo umount -f -R "$QEMU_ROOT" || true
     set -e
 }
 
@@ -81,9 +80,13 @@ trap cleanup EXIT
 
 main()
 {
-    OPENTHREAD_COMMIT_HASH=$(cd "${OT_REFERENCE_RELEASE}"/openthread && git rev-parse --short HEAD)
-    OT_BR_POSIX_COMMIT_HASH=$(cd "${OT_REFERENCE_RELEASE}"/ot-br-posix && git rev-parse --short HEAD)
-    # This script will be executed entirely within the siliconlabsinc/docker-rpi-emu container
+    OPENTHREAD_COMMIT_HASH=$(git -C "${OT_REFERENCE_RELEASE}"/openthread rev-parse --short HEAD)
+    OT_BR_POSIX_COMMIT_HASH=$(git -C "${OT_REFERENCE_RELEASE}"/ot-br-posix rev-parse --short HEAD)
+
+    # Ensure qemu is installed
+    if ! command -v /usr/bin/qemu-arm-static; then
+        "${OT_REFERENCE_RELEASE}"/script/bootstrap.bash qemu
+    fi
 
     # Ensure OUTPUT_ROOT exists
     mkdir -p "$OUTPUT_ROOT"
@@ -92,20 +95,21 @@ main()
     [ -d "$IMAGES_DIR" ] || mkdir -p "$IMAGES_DIR"
 
     # Download raspios image
+    RASPIOS_URL=https://downloads.raspberrypi.org/raspios_lite_armhf/images/raspios_lite_armhf-2021-05-28/2021-05-07-raspios-buster-armhf-lite.zip
+    IMAGE_ARCHIVE=$(basename "${RASPIOS_URL}")
+    IMAGE_FILE=$(basename "${IMAGE_ARCHIVE}" .zip).img
     wget -q -O "$IMAGES_DIR/$IMAGE_ARCHIVE" -c "$RASPIOS_URL"
 
     # Extract the downloaded archive
-    if [ ! -f "$IMAGES_DIR/$IMAGE_FILE" ]; then
         mime_type=$(file "$IMAGES_DIR/$IMAGE_ARCHIVE" --mime-type)
         if [[ "$mime_type" == *"application/zip"* ]]; then
-            unzip "$IMAGES_DIR/$IMAGE_ARCHIVE" -d $IMAGES_DIR
+        unzip -o "$IMAGES_DIR/$IMAGE_ARCHIVE" -d $IMAGES_DIR
         elif [[ "$mime_type" == *"application/"* ]]; then
-            xz -k -d "$IMAGES_DIR/$IMAGE_ARCHIVE"
+        xz -f -k -d "$IMAGES_DIR/$IMAGE_ARCHIVE"
         else
             echo "ERROR: Unrecognized archive type\n${mime_type}"
             exit 3
         fi
-    fi
     ls -alh $IMAGES_DIR/$IMAGE_FILE
 
     # Ensure STAGE_DIR exists. Create a copy of IMAGE_FILE in STAGE_DIR
@@ -128,7 +132,9 @@ main()
     sudo "${OT_REFERENCE_RELEASE}"/docker-rpi-emu/scripts/mount.sh "$STAGING_IMAGE_FILE" $QEMU_ROOT
 
     # Mount /etc/resolv.conf
-    sudo mount -o ro,bind /etc/resolv.conf "$QEMU_ROOT"/etc/resolv.conf
+    if [ -f "/etc/resolv.conf" ]; then
+        sudo mount -o ro,bind /etc/resolv.conf "$QEMU_ROOT"/etc/resolv.conf
+    fi
 
     # Start RPi QEMU machine
     sudo "${OT_REFERENCE_RELEASE}"/docker-rpi-emu/scripts/qemu-setup.sh "$QEMU_ROOT"
