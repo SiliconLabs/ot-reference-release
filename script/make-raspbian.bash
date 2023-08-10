@@ -134,7 +134,6 @@ main()
     sudo "${OT_REFERENCE_RELEASE}"/docker-rpi-emu/scripts/qemu-setup.sh "$QEMU_ROOT"
 
     # Copy ot-reference-release repo into QEMU_ROOT
-    pip3 install git_archive_all
     python3 -m git_archive_all "$STAGE_DIR"/repo.tar.gz
     sudo mkdir -p "$QEMU_ROOT"/home/pi/repo
     sudo tar xzf "$STAGE_DIR"/repo.tar.gz --absolute-names --strip-components 1 -C "$QEMU_ROOT"/home/pi/repo
