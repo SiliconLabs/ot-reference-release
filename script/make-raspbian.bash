@@ -143,7 +143,7 @@ main()
     sudo tar xzf "$STAGE_DIR"/repo.tar.gz --absolute-names --strip-components 1 -C "$QEMU_ROOT"/home/pi/repo
 
     # Run OTBR install
-    sudo chroot "$QEMU_ROOT" /bin/bash /home/pi/repo/script/otbr-setup.bash "${REFERENCE_RELEASE_TYPE?}" "$IN_CHINA" "${REFERENCE_PLATFORM?}" "${OPENTHREAD_COMMIT_HASH}" "${OT_BR_POSIX_COMMIT_HASH}" "${OTBR_RCP_BUS}" "${OTBR_RADIO_URL}"
+    sudo chroot "$QEMU_ROOT" /bin/bash -c "export DOCKER=${DOCKER-0}; /home/pi/repo/script/otbr-setup.bash ${REFERENCE_RELEASE_TYPE?} $IN_CHINA ${REFERENCE_PLATFORM?} ${OPENTHREAD_COMMIT_HASH} ${OT_BR_POSIX_COMMIT_HASH} ${OTBR_RCP_BUS} ${OTBR_RADIO_URL}"
     sudo chroot "$QEMU_ROOT" /bin/bash /home/pi/repo/script/otbr-cleanup.bash
     echo "enable_uart=1" | sudo tee -a "$QEMU_ROOT"/boot/config.txt
     echo "dtoverlay=disable-bt" | sudo tee -a "$QEMU_ROOT"/boot/config.txt
