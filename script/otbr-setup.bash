@@ -97,6 +97,24 @@ readonly OTBR_THREAD_1_4_OPTIONS=(
     "-DOTBR_DHCP6_PD=ON"
 )
 
+readonly OTBR_THREAD_1_4_OPTIONS_NO_TREL=(
+    ${OTBR_COMMON_OPTIONS[@]}
+    "-DOT_THREAD_VERSION=1.4"
+    "-DOTBR_DUA_ROUTING=ON"
+    "-DOT_DUA=ON"
+    "-DOT_MLR=ON"
+    "-DOTBR_DNSSD_DISCOVERY_PROXY=ON"
+    "-DOTBR_SRP_ADVERTISING_PROXY=ON"
+    "-DOT_BORDER_ROUTING=ON"
+    "-DOT_SRP_CLIENT=ON"
+    "-DOT_DNS_CLIENT=ON"
+    "-DOT_TCP=ON"
+    "-DOT_DNS_CLIENT_OVER_TCP=ON"
+    "-DOTBR_TREL=OFF"
+    "-DOTBR_NAT64=ON"
+    "-DOTBR_DHCP6_PD=ON"
+)
+
 build_options=(
     "INFRA_IF_NAME=eth0"
     "RELEASE=1"
@@ -171,6 +189,27 @@ elif [ "${REFERENCE_RELEASE_TYPE?}" = "1.4" ]; then
             build_options+=("${LOCAL_OPTIONS[@]}")
             ;;
     esac
+elif [ "${REFERENCE_RELEASE_TYPE?}" = "1.4-NO-TREL" ]; then
+    case "${REFERENCE_PLATFORM}" in
+        efr32mg12)
+            readonly LOCAL_OPTIONS=(
+                'BORDER_ROUTING=1'
+                'NAT64=1'
+                'DNS64=1'
+                "OTBR_OPTIONS=\"${OTBR_THREAD_1_4_OPTIONS_NO_TREL[@]} -DOT_RCP_RESTORATION_MAX_COUNT=100 -DCMAKE_CXX_FLAGS='-DOPENTHREAD_CONFIG_MAC_CSL_REQUEST_AHEAD_US=5000'\""
+            )
+            build_options+=("${LOCAL_OPTIONS[@]}")
+            ;;
+        *)
+            readonly LOCAL_OPTIONS=(
+                'BORDER_ROUTING=1'
+                'NAT64=1'
+                'DNS64=1'
+                "OTBR_OPTIONS=\"${OTBR_THREAD_1_4_OPTIONS_NO_TREL[@]}\""
+            )
+            build_options+=("${LOCAL_OPTIONS[@]}")
+            ;;
+    esac
 fi
 
 configure_apt_source()
@@ -202,7 +241,7 @@ pip3 install zeroconf
 
 su -c "${build_options[*]} script/setup" pi
 
-if [[ "$REFERENCE_RELEASE_TYPE" = "1.2" || "$REFERENCE_RELEASE_TYPE" = "1.3" || "$REFERENCE_RELEASE_TYPE" = "1.4" ]]; then
+if [[ "$REFERENCE_RELEASE_TYPE" = "1.2" || "$REFERENCE_RELEASE_TYPE" = "1.3" || "$REFERENCE_RELEASE_TYPE" = "1.4" || "$REFERENCE_RELEASE_TYPE" = "1.4-NO-TREL" ]]; then
     cd /home/pi/repo/
     ./script/make-commissioner.bash
 fi
@@ -228,6 +267,9 @@ if [ "${REFERENCE_PLATFORM?}" = "ncs" ]; then
     fi
 
 elif [ "${REFERENCE_PLATFORM?}" = "efr32mg12" ]; then
+    if [ "$REFERENCE_RELEASE_TYPE" = "1.4-NO-TREL" ]; then
+        REFERENCE_RELEASE_TYPE=${REFERENCE_RELEASE_TYPE%-NO-TREL}
+    fi
     # update testharness-discovery script to fix autodiscovery issue
     sed -i "s/OpenThread_BR/OTS${REFERENCE_RELEASE_TYPE//./}_BR/g" /usr/sbin/testharness-discovery
 fi
