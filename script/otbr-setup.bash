@@ -93,6 +93,22 @@ readonly OTBR_THREAD_1_4_OPTIONS=(
     "-DOTBR_DHCP6_PD=ON"
 )
 
+readonly OTBR_THREAD_1_4_OPTIONS_NO_TREL=(
+    ${OTBR_COMMON_OPTIONS[@]}
+    "-DOT_THREAD_VERSION=1.4"
+    "-DOTBR_DUA_ROUTING=ON"
+    "-DOT_DUA=ON"
+    "-DOT_MLR=ON"
+    "-DOT_BORDER_ROUTING=ON"
+    "-DOT_SRP_CLIENT=ON"
+    "-DOT_DNS_CLIENT=ON"
+    "-DOT_TCP=ON"
+    "-DOT_DNS_CLIENT_OVER_TCP=ON"
+    "-DOTBR_TREL=OFF"
+    "-DOTBR_NAT64=ON"
+    "-DOTBR_DHCP6_PD=ON"
+)
+
 build_options=(
     "INFRA_IF_NAME=eth0"
     "RELEASE=1"
@@ -194,6 +210,31 @@ elif [ "${REFERENCE_RELEASE_TYPE?}" = "1.4" ]; then
             build_options+=("${LOCAL_OPTIONS[@]}")
             ;;
     esac
+elif [ "${REFERENCE_RELEASE_TYPE?}" = "1.4-NO-TREL" ]; then
+    readonly LOCAL_OPTIONS_COMMON=(
+        'BORDER_ROUTING=1'
+        'NAT64=1'
+        'DNS64=1'
+        'SYSTEMD_NETWORKD=1'
+        'OTBR_DHCP6_PD_CLIENT=openthread'
+        'OTBR_MDNS=openthread'
+    )
+    case "${REFERENCE_PLATFORM}" in
+        efr32mg12)
+            readonly LOCAL_OPTIONS=(
+                "${LOCAL_OPTIONS_COMMON[@]}"
+                "OTBR_OPTIONS=\"${OTBR_THREAD_1_4_OPTIONS_NO_TREL[@]} -DOT_RCP_RESTORATION_MAX_COUNT=100 -DCMAKE_CXX_FLAGS='-DOPENTHREAD_CONFIG_MAC_CSL_REQUEST_AHEAD_US=5000'\""
+            )
+            build_options+=("${LOCAL_OPTIONS[@]}")
+            ;;
+        *)
+            readonly LOCAL_OPTIONS=(
+                "${LOCAL_OPTIONS_COMMON[@]}"
+                "OTBR_OPTIONS=\"${OTBR_THREAD_1_4_OPTIONS_NO_TREL[@]}\""
+            )
+            build_options+=("${LOCAL_OPTIONS[@]}")
+            ;;
+    esac
 fi
 
 configure_apt_source()
@@ -234,7 +275,7 @@ pip3 install dbus-python==1.3.2
 sh -c "${build_options[*]} script/setup"
 
 case "$REFERENCE_RELEASE_TYPE" in
-    "1.2" | "1.3" | "1.4")
+    "1.2" | "1.3" | "1.4" | "1.4-NO-TREL")
         cd /home/pi/repo/
         ./script/make-commissioner.bash
         ;;
@@ -265,6 +306,9 @@ if [ "${REFERENCE_PLATFORM?}" = "ncs" ]; then
     fi
 
 elif [ "${REFERENCE_PLATFORM?}" = "efr32mg12" ]; then
+    if [ "$REFERENCE_RELEASE_TYPE" = "1.4-NO-TREL" ]; then
+        REFERENCE_RELEASE_TYPE=${REFERENCE_RELEASE_TYPE%-NO-TREL}
+    fi
     # update testharness-discovery script to fix autodiscovery issue
     sed -i "s/OpenThread_BR/OTS${REFERENCE_RELEASE_TYPE//./}_BR/g" /usr/sbin/testharness-discovery
 fi
