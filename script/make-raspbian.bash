@@ -41,6 +41,7 @@ OT_REFERENCE_RELEASE="$(dirname "$script_dir")"
 echo "REFERENCE_RELEASE_TYPE=${REFERENCE_RELEASE_TYPE?}"
 echo "IN_CHINA=${IN_CHINA:=0}"
 echo "OUTPUT_ROOT=${OUTPUT_ROOT?}"
+echo "PI_PASSWORD=${PI_PASSWORD:=raspberry}"
 echo "OTBR_RCP_BUS=${OTBR_RCP_BUS:=UART}"
 echo "REFERENCE_PLATFORM=${REFERENCE_PLATFORM?}"
 echo "OTBR_RADIO_URL=${OTBR_RADIO_URL:=spinel+hdlc+uart:///dev/ttyACM0}"
@@ -138,13 +139,12 @@ main()
     # Start RPi QEMU machine
     sudo "${OT_REFERENCE_RELEASE}"/docker-rpi-emu/scripts/qemu-setup.sh "$QEMU_ROOT"
 
-    # Ensure git_archive_all is installed
-    if ! python3 -m pip show git_archive_all; then
-        "${OT_REFERENCE_RELEASE}"/script/bootstrap.bash python
-    fi
+    # Ensure git_archive_all is installed into the venv
+    "${OT_REFERENCE_RELEASE}"/script/bootstrap.bash python
 
     # Copy ot-reference-release repo into QEMU_ROOT
-    python3 -m git_archive_all "$STAGE_DIR"/repo.tar.gz
+    # Use the venv python explicitly — system python3 does not have git_archive_all.
+    "${OT_REFERENCE_RELEASE}/.venv/bin/python3" -m git_archive_all "$STAGE_DIR"/repo.tar.gz
     sudo mkdir -p "$QEMU_ROOT"/home/pi/repo
     sudo tar xzf "$STAGE_DIR"/repo.tar.gz --absolute-names --strip-components 1 -C "$QEMU_ROOT"/home/pi/repo
 
@@ -161,13 +161,20 @@ main()
     # Create userconf.txt for headless setup (Bookworm requirement)
     # This pre-configures the 'pi' user with a password to bypass the first-boot wizard.
     # The password hash is produced with SHA-512 ("openssl passwd -6").
-    PASSWD_HASH=$(openssl passwd -6 "${PI_PASSWORD?PI_PASSWORD environment variable is not set}")
+    PASSWD_HASH=$(openssl passwd -6 "${PI_PASSWORD:=raspberry}")
     echo "pi:${PASSWD_HASH}" | sudo tee "$QEMU_ROOT/boot/userconf.txt" >/dev/null
+
+    # Unmount the image before shrinking — pishrink cannot attach a new losetup
+    # on an image that is already loop-mounted by mount.sh.
+    sync
+    sudo "${OT_REFERENCE_RELEASE}"/docker-rpi-emu/scripts/qemu-cleanup.sh "$QEMU_ROOT" || true
+    sudo umount -f -R "$QEMU_ROOT" || true
 
     # Shrink .img
     if [[ ! -f /usr/bin/pishrink.sh ]]; then
         sudo wget https://raw.githubusercontent.com/Drewsif/PiShrink/master/pishrink.sh -O /usr/bin/pishrink.sh && sudo chmod a+x /usr/bin/pishrink.sh
     fi
+
     set +e
     sudo /usr/bin/pishrink.sh "$STAGING_IMAGE_FILE"
     ret_val=$?
